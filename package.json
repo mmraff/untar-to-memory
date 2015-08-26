@@ -1,0 +1,31 @@
+{
+  "name": "untar-to-memory",
+  "version": "1.0.0",
+  "description": "npm module for reading stuff from tarballs without writing to the filesystem.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mmraff/untar-to-memory"
+  },
+  "bugs": {
+    "url" : "https://github.com/mmraff/untar-to-memory/issues"
+  },
+  "main": "index.js",
+  "scripts": {
+  },
+  "dependencies": {
+    "graceful-fs": "~4.1.2",
+    "tar": "^2.1.1"
+  },
+  "keywords": [
+    "tar",
+    "untar",
+    "tarball",
+    "tgz",
+    "archive",
+    "extract",
+    "buffer",
+    "readonly"
+  ],
+  "author": "Matthew Rafferty",
+  "license": "Artistic-2.0"
+}
