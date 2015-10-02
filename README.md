@@ -2,7 +2,7 @@
 npm module for reading stuff from tarballs without writing to the filesystem.
 
 The aim of this module is to mimic the read-oriented behavior of command-line
-[tar](http://FIX_ME/tar_site_here).
+[tar](http://www.gnu.org/software/tar/manual/tar.html).
 
 **tar** takes a multitude of options, not all of which are currently implemented
 in this module.
@@ -70,4 +70,5 @@ check error.path to distinguish between no-such-tarball and no-such-entry.
 ## Pattern Matching Control
 
 For an authoritative discussion and examples, see the
-[tar manual page at gnu.org](http://gnu.org/FIX_ME)
+[tar manual page at gnu.org](https://www.gnu.org/software/tar/manual/html_node/controlling-pattern_002dmatching.html)
+
