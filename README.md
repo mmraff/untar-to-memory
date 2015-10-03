@@ -4,8 +4,8 @@ npm module for reading stuff from tarballs without writing to the filesystem.
 The aim of this module is to mimic the read-oriented behavior of command-line
 [tar](http://www.gnu.org/software/tar/manual/tar.html).
 
-**tar** takes a multitude of options, not all of which are currently implemented
-in this module.
+Command-line **tar** takes a multitude of options, not all of which are currently
+implemented in this module.
 
 ## Installation
 
@@ -64,7 +64,7 @@ check error.path to distinguish between no-such-tarball and no-such-entry.
   + `wildcardsMatchSlash` default: true
   + `recursion` default: true
   + `anchored` default: true
-* `callback` Function: args (`error`, `entries`) where entries is an array of
+* `callback` Function: args (`error`, `entries`) where `entries` is an array of
   entry names that matched (possibly none) if successful.
 
 ## Pattern Matching Control
