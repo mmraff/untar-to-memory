@@ -4,8 +4,8 @@ npm module for reading stuff from tarballs without writing to the filesystem.
 The aim of this module is to mimic the read-oriented behavior of command-line
 [tar](http://www.gnu.org/software/tar/manual/tar.html).
 
-Command-line **tar** takes a multitude of options, not all of which are currently
-implemented in this module.
+_Command-line **tar** takes a multitude of options, not all of which are currently
+implemented in this module._
 
 ## Installation
 
