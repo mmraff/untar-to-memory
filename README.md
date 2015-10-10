@@ -18,6 +18,7 @@ var untar = require('untar-to-memory')
 
 var tgzPath = path.resolve("path", "to", "tarball1.tgz")
   ;
+// Verbatim entry specification - null for options gets defaults
 untar.readEntry(tgzPath, "secret/passwords.bin", null, function (er, buf) {
   // ...
 )}
@@ -30,6 +31,22 @@ var tarPath = path.resolve("another", "path", "tarball2.tar")
 untar.readEntry(tarPath, "*/KEYS.TXT", opts, function (er, buf) {
   // ...
 )}
+
+// Get list of all entries from tarball2.tar
+untar.list(tarPath, null, function(er, allEntries) {
+  if (er) { /* error handling... */ }
+  for (var i = 0; i < allEntries.length; i++) {
+    // ...
+  }
+})
+
+// Get list of only the entries directly under "secret/" in tarball1.tgz
+var opts = { pattern: "secret/*", wildcards: true, wildcardsMatchSlash: false,
+             recursion: false }
+  ;
+untar.list(tgzPath, opts, function(er, topSecrets) {
+  // ...
+})
 
 ```
 
