@@ -9,11 +9,11 @@
     "url": "https://github.com/mmraff/untar-to-memory"
   },
   "bugs": {
-    "url" : "https://github.com/mmraff/untar-to-memory/issues"
+    "url": "https://github.com/mmraff/untar-to-memory/issues"
   },
   "main": "index.js",
   "scripts": {
-    "test": "node test/*.js"
+    "test": "tap test/*.js"
   },
   "dependencies": {
     "graceful-fs": "~4.1.2",
@@ -21,7 +21,9 @@
     "tar": "^2.1.1"
   },
   "devDependencies": {
-    "tap": ">=1.4.0"
+    "mkdirp": "^0.5.0",
+    "rimraf": "^2.4.2",
+    "tap": "^1.4.0"
   },
   "keywords": [
     "tar",

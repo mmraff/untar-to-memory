@@ -1,12 +1,16 @@
-var tap = require("tap")
-  , readEntry = require("../index.js").readEntry
-  , fs = require("fs")
-  , path = require("path")
-  , fxs = require("./fixtures/fixtures.js")
-  , i = 0
-  , tarball
-  , entryList
-  , currTest
+const fs = require("fs")
+const path = require("path")
+
+const rimraf = require("rimraf")
+const tap = require("tap")
+
+const readEntry = require("../index.js").readEntry
+const fxs = require("./fixtures/fixtures.js")
+
+let i = 0
+let tarball
+let entryList
+let currTest
 
 function readNextItem ()
 {
@@ -67,8 +71,8 @@ tap.test("Read naked tarball entry data to buffer and validate", function (t) {
 
 function testPatternMatch (myTest, pattern, opts, re_file)
 {
-  var tarball = fxs.constructedTar
-    , entryList = fxs.constructedEntries
+  const tarball = fxs.constructedTar
+  const entryList = fxs.constructedEntries
   
   readEntry(tarball, pattern, opts, function (tbErr, tbBuf) {
     if (tbErr) {
@@ -141,3 +145,9 @@ tap.test("Show that option 'ignoreCase' allows a match, regardless of pattern ca
     testPatternMatch(t, pattern, opts, RE_patt)
 })
 
+tap.tearDown(function() {
+  const extractPath = path.resolve(__dirname, "fixtures", "tarball_base")
+  rimraf(extractPath, function(err) {
+    if (err) throw err
+  })
+})

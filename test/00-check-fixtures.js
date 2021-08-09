@@ -1,12 +1,24 @@
-var tap = require("tap")
-  , fs = require("fs")
-  , path = require("path")
-  , fxs = require("./fixtures/fixtures.js")
+const fs = require("fs")
+const path = require("path")
+const mkdirp = require("mkdirp")
+const tar = require("tar")
+const tap = require("tap")
+const fxs = require("./fixtures/fixtures.js")
+
+tap.test("Setup: extract the contents of the gzipped tarball", function(t) {
+  const extractPath = path.resolve(__dirname, "fixtures", "tarball_base")
+  mkdirp(extractPath, function(err) {
+    if (err) return t.bailout(err)
+    tar.x({ file: fxs.naturalTgz, C: extractPath })
+    .then(() => t.end())
+    .catch(err => t.bailout(err))
+  })
+})
 
 tap.test("Check that each entry source file is unique", function (t) {
-  var entryList = fxs.naturalEntries
-    , currBuf = null
-    , i = 0
+  const entryList = fxs.naturalEntries
+  let currBuf = null
+  let i = 0
 
   function compareNext (j) {
     var path2 =
