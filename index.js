@@ -1,29 +1,28 @@
 exports.readEntry = readEntry
 exports.list = listEntries
 
-var tar = require("tar")
-  , fs = require("graceful-fs")
-  , zlib = require("zlib")
-  , minimatch = require("minimatch")
-  , assert = require("assert")
-  , makeLogFunc = require("./make-log-function.js")
-  ;
-var RE_STAR_CONTEXT = /(?:^|\/)\*(?:\/|$)/
-  , RE_RECURS_TAIL = /(?:^|\/)\**$/
-  , RE_STAR = /\*/
+const tar = require("tar")
+const fs = require("graceful-fs")
+const zlib = require("zlib")
+const minimatch = require("minimatch")
+const assert = require("assert")
+const makeLogFunc = require("./make-log-function.js")
 
-  , debug = function () {}
+const RE_STAR_CONTEXT = /(?:^|\/)\*(?:\/|$)/
+const RE_RECURS_TAIL = /(?:^|\/)\**$/
+const RE_STAR = /\*/
 
-  , supportedOpts = { // with default values, for reference
-        debug: false
-      , ignoreCase: false
-      , wildcards: false
-      , wildcardsMatchSlash: true
-      , recursion: true
-      , anchored: true
-      , pattern: null
-    }
-  ;
+let debug = function () {}
+
+const supportedOpts = { // with default values, for reference
+  debug: false,
+  ignoreCase: false,
+  wildcards: false,
+  wildcardsMatchSlash: true,
+  recursion: true,
+  anchored: true,
+  pattern: null
+}
 
 function listEntries(tarball, opts, cb)
 {
@@ -31,7 +30,7 @@ function listEntries(tarball, opts, cb)
          "Must give path to tarball")
   assert(typeof cb === "function", "Must give callback")
 
-  var params = getParams(opts)
+  const params = getParams(opts)
   if (params.pattern) { params.origPattern = params.pattern }
   checkHeader(tarball, params, getList, cb)
 }
@@ -44,16 +43,16 @@ function readEntry (tarball, filename, opts, cb)
          "Must give name of file to seek")
   assert(typeof cb === "function", "Must give callback")
 
-  var params = getParams(opts)
+  const params = getParams(opts)
   params.pattern = params.origPattern = filename
   checkHeader(tarball, params, getFileBuffer, cb)
 }
 
 function getParams (obj)
 {
-  var params = {}
-    , invalidOpts = []
-    ;
+  const params = {}
+  const invalidOpts = []
+
   if (obj) {
     for (var key in obj) {
       if (!(key in supportedOpts)) {
@@ -96,9 +95,9 @@ function checkHeader(tarball, params, next, cb0)
     cb0(er, data)
   }
 
-  var cbCalled = false
-    , fst = fs.createReadStream(tarball)
-    ;
+  let cbCalled = false
+  const fst = fs.createReadStream(tarball)
+
   fst.on("open", function (fd) {
     fs.fstat(fd, function (er, st) {
       if (er) return fst.emit("error", er)
@@ -172,16 +171,15 @@ function starsToGlobstars (source)
 function createMatcher (params, fst)
 {
   // We want behavior as close as possible to command-line tar:
-  var options = {
-        dot: true,
-        nobrace: true,
-        noext: true,
-        noglobstar: true,
-        nocomment: true,
-        nonegate: true
-      }
-    , mm
-    ;
+  const options = {
+    dot: true,
+    nobrace: true,
+    noext: true,
+    noglobstar: true,
+    nocomment: true,
+    nonegate: true
+  }
+
   if (params.ignoreCase) { options.nocase = true }
   if (params.wildcards && params.wildcardsMatchSlash) {
     delete options.noglobstar
@@ -189,7 +187,7 @@ function createMatcher (params, fst)
   if (params.anchored == false) { options.matchBase = true }
   if (params.debug == "minimatch") { options.debug = true }
 
-  mm = new minimatch.Minimatch(params.pattern, options)
+  const mm = new minimatch.Minimatch(params.pattern, options)
   if (!mm.makeRe()) { // Bad pattern
     var err = new Error("Invalid match pattern " + params.origPattern)
     err.code = "EINVAL"
@@ -200,11 +198,11 @@ function createMatcher (params, fst)
 
 function getFileBuffer(fst, params, cb)
 {
-  var mm = null
-    , content = null
-    , start = 0
-    , err = null
-    ;
+  let content = null
+  let start = 0
+  let err = null
+  let mm
+
   debug("verbose", "Requested pattern: " + params.origPattern);
   if (params.wildcards) {
     if (params.wildcardsMatchSlash && RE_STAR_CONTEXT.test(params.pattern)) {
@@ -217,42 +215,53 @@ function getFileBuffer(fst, params, cb)
     }
 
     mm = createMatcher(params, fst)
-    if (!mm) { return }
+    if (!mm) return
   }
 
-  fst.pipe(tar.Parse())
-    .on("entry", function(entry) {
-      var tarParser = this
-
-      // It's meaningless to send back non-file data
-      if (entry.type != 'File') { return }
-
-      var isMatch
-        ;
-      debug("verbose", "Testing entry: " + entry.path)
-      if (mm) { // Minimatch instance was obtained => wildcarded pattern
-        isMatch = mm.match(entry.path)
-      }
-      else {
-        isMatch = params.ignoreCase ?
-          (entry.path.toLowerCase() == params.pattern.toLowerCase()) :
-          (entry.path == params.pattern)
-      }
-      if (!isMatch) { return }
-      debug("verbose", "Match found for pattern " + params.origPattern)
-
-      content = new Buffer(entry.size)
-
-      entry.on("data", function (data) {
-        data.copy(content, start, 0, data.length)
-        start += data.length
-      })
-      entry.on("end", function () {
-        tarParser.pause()
-        debug("verbose", "Reached end of data for matched entry")
-        tarParser.emit("end")
-      })
+  function processEntry(entry) {
+    entry.on("error", function(err) {
+      debug("error", "Caught in processEntry 'error' event handler")
+      cb(err)
+      tarParser.end()
     })
+    if (entry.ignore || entry.meta) return entry.resume()
+
+    // It's meaningless to send back non-file data
+    if (entry.type != 'File') return entry.resume()
+
+    let isMatch
+      ;
+    debug("verbose", "Testing entry: " + entry.path)
+    if (mm) { // Minimatch instance was obtained => wildcarded pattern
+      isMatch = mm.match(entry.path)
+    }
+    else {
+      isMatch = params.ignoreCase ?
+        (entry.path.toLowerCase() == params.pattern.toLowerCase()) :
+        (entry.path == params.pattern)
+    }
+    if (!isMatch) return entry.resume()
+
+    tarParser.removeListener("entry", processEntry)
+    debug("verbose", "Match found for pattern " + params.origPattern)
+
+    // TODO: impose an upper limit on the size!
+    content = new Buffer(entry.size)
+
+    entry.on("data", function (data) {
+      data.copy(content, start, 0, data.length)
+      start += data.length
+    })
+    entry.on("end", function () {
+      debug("verbose", "Reached end of data for matched entry")
+      cb(null, content)
+      tarParser.end()
+    })
+  }
+
+  const tarParser = new tar.Parse()
+  fst.pipe(tarParser)
+    .on("entry", processEntry)
     .on("error", function (er) {
       err = er || new Error("unknown parse error")
       if (!err.path) { err.path = params.tarballpath }
@@ -268,34 +277,41 @@ function getFileBuffer(fst, params, cb)
         err.path = params.origPattern
         debug("warn", err.message)
       }
-      cb(err, content)
+      if (err) cb(err)
     })
 }
 
 function getList(fst, params, cb)
 {
-  var mm = null
-    , list = []
-    , dirs = []
-    , recursOpts = {}
-    , dirIndex = -1
-    , i
-    , handleEntry = function (entry) { list.push(entry.path) }
-    , err = null
-    ;
-  function filterEntry (entry)
+  const list = []
+  const dirs = []
+  const recursOpts = {}
+  let dirIndex = -1
+  let err = null
+  let mm = null
+  let i
+  let handleEntryPath = function (entry) {
+    if (!entry.ignore && !entry.meta) {
+      debug("verbose", "default handleEntryPath: adding '" + entry.path + "' to list")
+      list.push(entry.path)
+    }
+    entry.resume()
+  }
+
+  function filterEntryPath(entry)
   {
-    var isMatched = false
-      , tailMatches
-      , globPattern
-      ;
-    debug("info", "filterEntry: testing "+entry.path)
+    let isMatched = false
+    let tailMatches
+    let globPattern
+
+    if (entry.ignore || entry.meta) return entry.resume()
+    debug("info", "filterEntryPath: testing '" + entry.path + "'")
     if (dirIndex != -1) {
       debug("verbose", "Betting on previous recursive match for next...")
       if (minimatch(entry.path, dirs[dirIndex], recursOpts)) {
         debug("verbose", "Matched by recursion from "+dirs[dirIndex])
         list.push(entry.path)
-        return
+        return entry.resume()
       }
       debug("verbose", "unsuccessful.")
     }
@@ -340,8 +356,8 @@ function getList(fst, params, cb)
         // The only other possible matches here are '**' and '/**'
         // but if that pattern was used when we got no matches, then we're done
         else {
-          debug("verbose", "No match for "+entry.path)
-          return
+          debug("verbose", "No match for " + entry.path)
+          return entry.resume()
         }
         debug("verbose", "Ad-hoc pattern: " + globPattern)
         if (minimatch(entry.path, globPattern, recursOpts)) {
@@ -350,10 +366,11 @@ function getList(fst, params, cb)
           dirIndex = dirs.length
           dirs.push(globPattern)
         }
-        else { debug("verbose", "No match for "+entry.path) }
+        else { debug("verbose", "No match for " + entry.path) }
       }
     }
-  } // END function filterEntry
+    entry.resume()
+  } // END function filterEntryPath
 
   if (params.pattern) {
     debug("info", "Pattern given; Minimatch instance will be used.")
@@ -375,18 +392,20 @@ function getList(fst, params, cb)
       for (var key in mm.options) { recursOpts[key] = mm.options[key] }
       if (recursOpts.noglobstar) { delete recursOpts.noglobstar }
     }
-    handleEntry = filterEntry
+    handleEntryPath = filterEntryPath
   }
   else { debug("info", "No pattern given; all entries will be returned.") }
 
-  fst.pipe(tar.Parse())
-    .on("entry", handleEntry)
+  const tarParser = new tar.Parse()
+  fst.pipe(tarParser)
+    .on("entry", handleEntryPath)
     .on("error", function (er) {
       err = er || new Error("unknown parse error")
       if (!err.path) { err.path = params.tarballpath }
       this.emit("end")
     })
     .on("end", function() {
+      debug("verbose", "getList: got the 'end' event")
       return cb(err, list)
     });
 }

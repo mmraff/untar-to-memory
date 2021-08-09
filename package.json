@@ -18,7 +18,7 @@
   "dependencies": {
     "graceful-fs": "~4.1.2",
     "minimatch": "3.x",
-    "tar": "^2.1.1"
+    "tar": "~4.4.15"
   },
   "devDependencies": {
     "mkdirp": "^0.5.0",
