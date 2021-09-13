@@ -12,6 +12,20 @@ let tarball
 let entryList
 let currTest
 
+// LOTS of EBADF errors since fix for issue #4.
+// Apparently you can over-challenge the filesystem's ability to keep up with
+// file descriptors.
+// Workaround: try n times, with a small delay for each, before giving up
+function attemptToRead(filePath, countDown, done) {
+  setTimeout(function() {
+    fs.readFile(filePath, function (err, buf) {
+      if (err && err.code == "EBADF" && --countDown)
+        return attemptToRead(filePath, countDown, done)
+      done(err, buf)
+    })
+  }, 10)
+}
+
 function readNextItem ()
 {
   // Workaround for directory entries in entryList
@@ -28,7 +42,7 @@ function readNextItem ()
     var entryPath = path.resolve(
       __dirname, "fixtures", "tarball_base", entryList[i])
 
-    fs.readFile(entryPath, function (rfErr, rfBuf) {
+    attemptToRead(entryPath, 3, function(rfErr, rfBuf) {
       if (rfErr) {
         currTest.fail(rfErr.message)
         return currTest.end()
@@ -94,7 +108,7 @@ function testPatternMatch (myTest, pattern, opts, re_file)
     }
     entryPath = path.resolve(__dirname, "fixtures", "tarball_base", entryMatch)
 
-    fs.readFile(entryPath, function (fsErr, fsBuf) {
+    attemptToRead(entryPath, 3, function(fsErr, fsBuf) {
       if (fsErr) { myTest.fail(fsErr.message) }
       else {
         myTest.ok(tbBuf.equals(fsBuf), [
