@@ -98,9 +98,11 @@ function checkHeader(tarball, params, next, cb0)
   let cbCalled = false
   const fst = fs.createReadStream(tarball)
 
-  fst.on("open", function (fd) {
+  fst.once("open", function (fd) {
     fs.fstat(fd, function (er, st) {
-      if (er) return fst.emit("error", er)
+      if (er) {
+        return fst.emit("error", er)
+      }
       if (st.size === 0) {
         er = new Error("0-byte file " + tarball)
         fst.emit("error", er)
@@ -113,7 +115,8 @@ function checkHeader(tarball, params, next, cb0)
         er.message = "tar archive not found: "+tarball
       }
     }
-    else { er = "Unknown error event while reading " + tarball }
+    else
+      er = new Error("Unknown error event while reading " + tarball)
     // But when would there ever be an error event without an error object?
     debug("warn", er.message)
     cb1(er)
@@ -196,6 +199,16 @@ function createMatcher (params, fst)
   return mm
 }
 
+function closeReadStream(fst) {
+  if (fst.fd)
+    fs.close(fst.fd, function(err) {
+      if (err) debug("warn", err.message)
+    })
+  // TODO: alternative approach
+  // Feature only available in node.js >= 8.0.0; requires major verion increment
+  //fst.destroy()
+}
+
 function getFileBuffer(fst, params, cb)
 {
   let content = null
@@ -221,8 +234,9 @@ function getFileBuffer(fst, params, cb)
   function processEntry(entry) {
     entry.on("error", function(err) {
       debug("error", "Caught in processEntry 'error' event handler")
-      cb(err)
       tarParser.end()
+      closeReadStream(fst)
+      cb(err)
     })
     if (entry.ignore || entry.meta) return entry.resume()
 
@@ -254,8 +268,11 @@ function getFileBuffer(fst, params, cb)
     })
     entry.on("end", function () {
       debug("verbose", "Reached end of data for matched entry")
-      cb(null, content)
       tarParser.end()
+      // TODO: find out if the above still needs to be done after the
+      // addition of closeReadStream() below
+      cb(null, content)
+      closeReadStream(fst)
     })
   }
 
@@ -266,9 +283,10 @@ function getFileBuffer(fst, params, cb)
       err = er || new Error("unknown parse error")
       if (!err.path) { err.path = params.tarballpath }
       debug("error", err.message)
+      closeReadStream(this)
       this.emit("end")
     })
-    .on("end", function() {
+    .once("end", function() {
       debug("verbose", "Parse-stream received 'end' event")
       if (!content && !err) {
         err = new Error(
@@ -402,9 +420,10 @@ function getList(fst, params, cb)
     .on("error", function (er) {
       err = er || new Error("unknown parse error")
       if (!err.path) { err.path = params.tarballpath }
+      closeReadStream(this)
       this.emit("end")
     })
-    .on("end", function() {
+    .once("end", function() {
       debug("verbose", "getList: got the 'end' event")
       return cb(err, list)
     });
