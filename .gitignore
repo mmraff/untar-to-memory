@@ -1,3 +1,9 @@
+logs/
+node_modules/
+JOURNAL/
+SCRATCH/
+STOWED/
+TEMP*/
+*.log
+npm-debug.log*
 TODO.txt
-node_modules
-
