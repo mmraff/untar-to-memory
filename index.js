@@ -259,8 +259,11 @@ function getFileBuffer(fst, params, cb)
     tarParser.removeListener("entry", processEntry)
     debug("verbose", "Match found for pattern " + params.origPattern)
 
-    // TODO: impose an upper limit on the size!
-    content = new Buffer(entry.size)
+    // TODO:
+    // Decide whether it's more sensible to unilaterally impose an upper limit
+    // on the size (return cb(new Error()) if entry is too big), or to add a
+    // parameter and put the burden on the user...
+    content = Buffer.allocUnsafe(entry.size)
 
     entry.on("data", function (data) {
       data.copy(content, start, 0, data.length)
