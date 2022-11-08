@@ -21,7 +21,8 @@ const supportedOpts = { // with default values, for reference
   wildcardsMatchSlash: true,
   recursion: true,
   anchored: true,
-  pattern: null
+  pattern: '',
+  sizeLimit: 0
 }
 
 function listEntries(tarball, opts, cb)
@@ -52,6 +53,7 @@ function getParams (obj)
 {
   const params = {}
   const invalidOpts = []
+  const invalidVals = []
 
   if (obj) {
     for (var key in obj) {
@@ -59,12 +61,22 @@ function getParams (obj)
         invalidOpts.push(key)
         continue
       }
-      if (typeof obj[key] !== "object") {
-        params[key] = obj[key]
+      if (typeof obj[key] !== typeof supportedOpts[key]) {
+        if (key !== "debug") {
+          invalidVals.push(key)
+          continue
+        }
+      }
+      if (key === "sizeLimit" && obj.sizeLimit < 0) {
+        invalidVals.push(key)
+        continue
       }
       // This space reserved for nested option objects.
       // For now, no such in the API.
+
+      params[key] = obj[key]
     }
+    // Postprocess params that need it
     if (obj.wildcards && typeof obj.wildcardsMatchSlash == "undefined") {
       params.wildcardsMatchSlash = true
     }
@@ -78,8 +90,12 @@ function getParams (obj)
       }
 
       if (invalidOpts.length) {
-        debug("warn", "Invalid options given:")
+        debug("warn", "Invalid option(s) given:")
         debug("warn", invalidOpts.join(', '))
+      }
+      if (invalidVals.length) {
+        debug("warn", "Invalid option value(s) given:")
+        debug("warn", invalidVals.map(key => `${key}: ${obj[key]}`).join('; '))
       }
       // Any other things to complain about here...
     }
@@ -211,6 +227,10 @@ function closeReadStream(fst) {
 
 function getFileBuffer(fst, params, cb)
 {
+  // Since sizeLimit is not an actual option of tar (or minimatch),
+  // we put it aside here.
+  const sizeLimit = params.sizeLimit || 0
+  delete params.sizeLimit
   let content = null
   let start = 0
   let err = null
@@ -256,13 +276,16 @@ function getFileBuffer(fst, params, cb)
     }
     if (!isMatch) return entry.resume()
 
+    if (sizeLimit && sizeLimit < entry.size) {
+      this.emit('error', new Error(
+        `User-imposed limit of ${sizeLimit} bytes exceeded (${entry.size})`
+      ))
+      return
+    }
+
     tarParser.removeListener("entry", processEntry)
     debug("verbose", "Match found for pattern " + params.origPattern)
 
-    // TODO:
-    // Decide whether it's more sensible to unilaterally impose an upper limit
-    // on the size (return cb(new Error()) if entry is too big), or to add a
-    // parameter and put the burden on the user...
     content = Buffer.allocUnsafe(entry.size)
 
     entry.on("data", function (data) {
