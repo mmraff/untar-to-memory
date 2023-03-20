@@ -1,9 +1,11 @@
-logs/
-node_modules/
-JOURNAL/
-SCRATCH/
-STOWED/
-TEMP*/
+/JOURNAL/
+/REFERENCE/
+/SCRATCH/
+/STOWED/
+/TEMP*/
+/logs/
+/node_modules/
+/.nyc_output/
 *.log
 npm-debug.log*
 TODO.txt
