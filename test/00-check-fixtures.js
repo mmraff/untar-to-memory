@@ -1,17 +1,21 @@
 const fs = require("fs")
 const path = require("path")
 const mkdirp = require("mkdirp")
+const rimraf = require("rimraf")
 const tar = require("tar")
 const tap = require("tap")
 const fxs = require("./fixtures/fixtures.js")
 
 tap.test("Setup: extract the contents of the gzipped tarball", function(t) {
   const extractPath = path.resolve(__dirname, "fixtures", "tarball_base")
-  mkdirp(extractPath, function(err) {
+  rimraf(extractPath, function(err) {
     if (err) return t.bailout(err)
-    tar.x({ file: fxs.naturalTgz, C: extractPath })
-    .then(() => t.end())
-    .catch(err => t.bailout(err))
+    mkdirp(extractPath, function(err) {
+      if (err) return t.bailout(err)
+      tar.x({ file: fxs.naturalTgz, C: extractPath })
+      .then(() => t.end())
+      .catch(err => t.bailout(err))
+    })
   })
 })
 
