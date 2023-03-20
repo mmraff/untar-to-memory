@@ -14,36 +14,37 @@ implemented in this module._
 ## Usage
 
 ```js
-var untar = require('untar-to-memory')
+const untar = require('untar-to-memory')
 
-var tgzPath = path.resolve("path", "to", "tarball1.tgz")
-  ;
+const tgzPath = path.resolve("path", "to", "tarball1.tgz")
+
 // Verbatim entry specification - null for options gets defaults
-untar.readEntry(tgzPath, "secret/passwords.bin", null, function (er, buf) {
+untar.readEntry(tgzPath, "secret/passwords.bin", null, (er, buf) => {
   // ...
-)}
+})
 
-var tarPath = path.resolve("another", "path", "tarball2.tar")
-  , opts = { ignoreCase: true, wildcards: true, wildcardsMatchSlash: false }
-  ;
+const tarPath = path.resolve("another", "path", "tarball2.tar")
+const opts = { ignoreCase: true, wildcards: true, wildcardsMatchSlash: false }
+
 // Get the contents of the first "keys.txt" entry that is directly under a
 // top level directory in the tarball, regardless of the entry name case:
-untar.readEntry(tarPath, "*/KEYS.TXT", opts, function (er, buf) {
+untar.readEntry(tarPath, "*/KEYS.TXT", opts, (er, buf) => {
   // ...
-)}
+})
 
 // Get list of all entries from tarball2.tar
-untar.list(tarPath, null, function(er, allEntries) {
+untar.list(tarPath, null, (er, allEntries) => {
   if (er) { /* error handling... */ }
-  for (var i = 0; i < allEntries.length; i++) {
+  for (let i = 0; i < allEntries.length; i++) {
     // ...
   }
 })
 
 // Get list of only the entries directly under "secret/" in tarball1.tgz
-var opts = { pattern: "secret/*", wildcards: true, wildcardsMatchSlash: false,
-             recursion: false }
-  ;
+const opts = {
+  pattern: "secret/*", wildcards: true, wildcardsMatchSlash: false,
+  recursion: false
+}
 untar.list(tgzPath, opts, function(er, topSecrets) {
   // ...
 })
@@ -54,7 +55,7 @@ untar.list(tgzPath, opts, function(er, topSecrets) {
 
 ### readEntry (tarball, filename, options, callback)
 
-* `tarball` String: path to a **tar** archive, which can be 'naked' or gzipped.
+* `tarball` String: path to a **tar** archive, which can be either uncompressed or gzipped.
 * `filename` String: path pattern to match an entry in the tarball.
 * `options` Object: settings corresponding to command-line **tar** options,
   to control pattern matching. Valid fields:
@@ -67,18 +68,23 @@ untar.list(tgzPath, opts, function(er, topSecrets) {
 Use of this function corresponds roughly to using operation mode `x`
 (`--extract`, `--get`) of command-line **tar** with option `-O` (`--to-stdout`).
 
-If error with error.code ENOENT is returned through the callback, user should
-check error.path to distinguish between no-such-tarball and no-such-entry.
+Some possible errors:
+  - EINVAL: invalid argument/option value.
+  - EFTYPE: the tarball has an invalid entry, or it's not a tar archive.
+  - ENOENT: the tarball path was not found, or readEntry() found no match.
+
+If error with error.code ENOENT is returned through the callback, user should check for error.pattern to distinguish between no-such-tarball and no-such-entry. *Deprecated: a new error code for no-such-entry will be added in the next minor/major version.*
+
 
 ### list (tarball, options, callback)
 
 * `tarball` String: path to a **tar** archive, which can be 'naked' or gzipped.
 * `options` Object: settings corresponding to command-line **tar** options,
   to control pattern matching. Valid fields:
-  + `pattern` no default; if empty, all entries will be matched.
+  + `pattern` default: ''; if empty, all entries will be matched.
   + `ignoreCase` default: false
   + `wildcards` default: false
-  + `wildcardsMatchSlash` default: true
+  + `wildcardsMatchSlash` default: true if `wildcards` false, otherwise true
   + `recursion` default: true
   + `anchored` default: true
 * `callback` Function: args (`error`, `entries`) where `entries` is an array of
