@@ -12,20 +12,6 @@ let tarball
 let entryList
 let currTest
 
-// LOTS of EBADF errors since fix for issue #4.
-// Apparently you can over-challenge the filesystem's ability to keep up with
-// file descriptors.
-// Workaround: try n times, with a small delay for each, before giving up
-function attemptToRead(filePath, countDown, done) {
-  setTimeout(function() {
-    fs.readFile(filePath, function (err, buf) {
-      if (err && err.code == 'EBADF' && --countDown)
-        return attemptToRead(filePath, countDown, done)
-      done(err, buf)
-    })
-  }, 10)
-}
-
 function readNextItem () {
   // Workaround for directory entries in entryList
   while (entryList[i].slice(-1) == '/') {
@@ -41,7 +27,7 @@ function readNextItem () {
       __dirname, 'fixtures/tarball_base', entryList[i]
     )
 
-    attemptToRead(entryPath, 3, function(rfErr, rfBuf) {
+    fs.readFile(entryPath, function (rfErr, rfBuf) {
       if (rfErr) {
         currTest.fail(rfErr.message)
         return currTest.end()
@@ -86,7 +72,7 @@ function testPatternMatch (myTest, pattern, opts, re_file) {
   const tarball = fxs.constructedTar
   const entryList = fxs.constructedEntries
   
-  readEntry(tarball, pattern, opts, function (tbErr, tbBuf) {
+  readEntry(tarball, pattern, opts, (tbErr, tbBuf) => {
     if (tbErr) {
       myTest.fail(tbErr.message)
       return myTest.end()
@@ -106,7 +92,7 @@ function testPatternMatch (myTest, pattern, opts, re_file) {
     }
     const entryPath = path.resolve(__dirname, 'fixtures/tarball_base', entryMatch)
 
-    attemptToRead(entryPath, 3, function(fsErr, fsBuf) {
+    fs.readFile(entryPath, (fsErr, fsBuf) => {
       if (fsErr) { myTest.fail(fsErr.message) }
       else {
         myTest.ok(tbBuf.equals(fsBuf), [
@@ -256,7 +242,8 @@ tap.test('invalid values for valid options', t => {
   const nextBadOpt = (i) => {
     if (i >= badOpts.length) return t.end()
     const opt = badOpts[i]
-    readEntry(fxs.naturalTgz, 'passwords.txt', { [opt.name]: opt.value }, (er, data) => {
+    const optsArg = { [opt.name]: opt.value }
+    readEntry(fxs.naturalTgz, 'passwords.txt', optsArg, (er, data) => {
       t.match(er, {
         message: `Invalid value type given for option "${opt.name}"`,
         code: 'EINVAL'
