@@ -1,64 +1,135 @@
-const fs = require('fs')
+const buffer_kMaxLength = require('buffer').kMaxLength
+const readFile = require('fs').promises.readFile
 const path = require('path')
+const util = require('util')
 
-const rimraf = require('rimraf')
+const mkdirp = require("mkdirp")
+const rimrafAsync = util.promisify(require('rimraf'))
 const tap = require('tap')
+const tar = require("tar")
 
 const readEntry = require('../index.js').readEntry
 const fxs = require('./fixtures/fixtures.js')
 
-let i = 0
-let tarball
-let entryList
-let currTest
+const extractPath = path.resolve(__dirname, 'fixtures/tarball_base')
 
-function readNextItem () {
-  // Workaround for directory entries in entryList
+tap.before(t => {
+  return rimrafAsync(extractPath)
+  .then(() => mkdirp(extractPath))
+  .then(() => tar.x({ file: fxs.naturalTgz, C: extractPath }))
+})
+
+tap.teardown(function() {
+  return rimrafAsync(extractPath)
+})
+
+const tgz = fxs.naturalTgz
+const badArgs = [ true, 42, { tarball: tgz }, [ tgz ], () => tgz ]
+
+tap.test('No tarball path given', t => {
+  t.rejects(readEntry(), SyntaxError)
+  for (const arg of [ undefined, null, '' ])
+    t.rejects(readEntry(arg, 'passwords.txt'), SyntaxError)
+  t.end()
+})
+
+tap.test('Wrong type given for tarball path', t => {
+  for (const arg of badArgs)
+    t.rejects(readEntry(arg, 'passwords.txt'), TypeError)
+  t.end()
+})
+
+tap.test('No entry name given', t => {
+  t.rejects(readEntry(fxs.naturalTgz), SyntaxError)
+  for (const arg of [ undefined, null, '' ])
+    t.rejects(readEntry(fxs.naturalTgz, arg), SyntaxError)
+  t.end()
+})
+
+tap.test('Wrong type given for entry name', t => {
+  for (const arg of badArgs)
+    t.rejects(readEntry(fxs.naturalTgz, arg), TypeError)
+  t.end()
+})
+
+tap.test('Wrong value type given for maxSize', t => {
+  t.rejects(readEntry(fxs.naturalTgz, 'whatever', { maxSize: 'any' }), {
+    message: 'Invalid value type given for option "maxSize"',
+    code: 'EINVAL'
+  })
+  t.end()
+})
+
+tap.test('Negative number given for maxSize', t => {
+  t.rejects(
+    readEntry(fxs.naturalTgz, 'whatever', { maxSize: -1 }),//, debug: true }),
+    { message: /^maxSize option cannot be negative/, code: 'EINVAL' }
+  )
+  t.end()
+})
+
+tap.test('Given maxSize greater than supported by node engine', t => {
+  const entry = 'x/y/rand-bytes.bin'
+  return readEntry(
+    fxs.naturalTgz, entry, { maxSize: buffer_kMaxLength + 1 }
+  )
+  .then(buf1 => {
+    const entryPath = path.resolve(extractPath, entry)
+    return readFile(entryPath).then(buf2 => {
+      t.ok(buf1.equals(buf2), 'success anyway')
+    })
+  })
+  t.end()
+})
+
+tap.test('Given maxSize less than target entry file size', t => {
+  const entry = 'x/y/rand-bytes.bin'
+  t.rejects(
+    readEntry(fxs.naturalTgz, entry, { maxSize: 1000 }),
+    { message: /^Limit of 1000 bytes exceeded /, code: 'EFBIG' }
+  )
+  t.end()
+})
+
+function readNextItem (t, tarball, entryList, i) {
+  if (i >= entryList.length) return t.end()
+  // Workaround for directory entries in entryList:
+  // Scan for an entry that does not end with '/' before doing tests
   while (entryList[i].slice(-1) == '/') {
-    if (++i >= entryList.length) return currTest.end()
+    if (++i >= entryList.length) return t.end()
   }
-  readEntry(tarball, entryList[i], {}, function (err, buf) {
-    if (err) {
-      currTest.fail(err.message)
-      return currTest.end()
-    }
-
-    const entryPath = path.resolve(
-      __dirname, 'fixtures/tarball_base', entryList[i]
-    )
-
-    fs.readFile(entryPath, function (rfErr, rfBuf) {
-      if (rfErr) {
-        currTest.fail(rfErr.message)
-        return currTest.end()
-      }
+  return readEntry(tarball, entryList[i], {})
+  .then(buf1 => {
+    const entryPath = path.resolve(extractPath, entryList[i])
+    return readFile(entryPath).then(buf2 => {
       // "If no encoding is specified, then the raw buffer is returned."
-      currTest.ok(buf.equals(rfBuf), entryList[i] + ' should match fs copy')
-      i++
-      if (i >= entryList.length) { return currTest.end() }
-      readNextItem()
+      t.ok(buf1.equals(buf2), entryList[i] + ' should match fs copy')
+      readNextItem(t, tarball, entryList, i + 1)
     })
   })
 }
 
 tap.test('Read gzipped tarball entry data to buffer and validate', t => {
-  tarball = fxs.naturalTgz
-  entryList = fxs.naturalEntries
-  currTest = t
-
-  // The Kick-off
-  readNextItem()
+  readNextItem(t, fxs.naturalTgz, fxs.naturalEntries, 0)
 })
 
 tap.test('Read naked tarball entry data to buffer and validate', t => {
-  i = 0
-  tarball = fxs.constructedTar
-  entryList = fxs.constructedEntries
-  currTest = t
-
-  readNextItem()
+  readNextItem(t, fxs.constructedTar, fxs.constructedEntries, 0)
 })
 
+// Coverage: unbzip2-stream instances do not have unpipe, so if we find the
+// target entry before end of entries, there's this code path that does not
+// call unpipe
+tap.test('Read bzip2-compressed tarball entry and validate', t => {
+  const entry = 'a/b/c/passwords.txt'
+  return readEntry(fxs.naturalTbz2, entry, { bzip2: true })
+  .then(buf1 => {
+    const entryPath = path.resolve(extractPath, entry)
+    return readFile(entryPath).then(buf2 => {
+      t.ok(buf1.equals(buf2), entry + ' should match fs copy')
+    })
+  })
+})
 // NOTE: in the case of an absolute-path entry, it is or isn't listed by
 // command-line tar when the pattern is "*/filename" depending on options:
 // * wildcards (wildcardsMatchSlash): yes, all "filename" (if dir, then + all under it)
@@ -68,16 +139,11 @@ tap.test('Read naked tarball entry data to buffer and validate', t => {
 //   tarball if there's no entry "/etc/")
 // * wildcards wildcardsMatchSlash=false recursion=false: only whole matches
 
-function testPatternMatch (myTest, pattern, opts, re_file) {
+function testPatternMatch (t, pattern, opts, re_file) {
   const tarball = fxs.constructedTar
   const entryList = fxs.constructedEntries
   
-  readEntry(tarball, pattern, opts, (tbErr, tbBuf) => {
-    if (tbErr) {
-      myTest.fail(tbErr.message)
-      return myTest.end()
-    }
-
+  return readEntry(tarball, pattern, opts).then(tbBuf => {
     let entryMatch
     for (const entry of entryList) {
       if (re_file.test(entry)) {
@@ -90,17 +156,14 @@ function testPatternMatch (myTest, pattern, opts, re_file) {
         `No match for ${re_file} on entries of fixture ${tarball}!`
       )
     }
-    const entryPath = path.resolve(__dirname, 'fixtures/tarball_base', entryMatch)
+    const entryPath = path.resolve(extractPath, entryMatch)
 
-    fs.readFile(entryPath, (fsErr, fsBuf) => {
-      if (fsErr) { myTest.fail(fsErr.message) }
-      else {
-        myTest.ok(tbBuf.equals(fsBuf), [
-          'Passing "', pattern, '" with opts ', JSON.stringify(opts),
-          ' to readEntry() should yield same contents as ', entryMatch
-        ].join(''))
-      }
-      myTest.end()
+    return readFile(entryPath).then(fsBuf => {
+      t.ok(tbBuf.equals(fsBuf), [
+        'Passing "', pattern, '" with opts ', JSON.stringify(opts),
+        ' to readEntry() should yield same contents as ', entryMatch
+      ].join(''))
+      t.end()
     })
   })
 }
@@ -138,7 +201,7 @@ tap.test('Unrecognized options trigger warnings but do not end the call', t => {
     warningData.push({ data, args })
   }
   const opts = { debug: true, yada: 'maybe so', dada: 'maybe not' }
-  readEntry(fxs.naturalTgz, 'passwords.txt', opts, (err, data) => {
+  return readEntry(fxs.naturalTgz, 'passwords.txt', opts).then(data => {
     console.warn = warn
     console.info = info
     console.log = log
@@ -146,27 +209,25 @@ tap.test('Unrecognized options trigger warnings but do not end the call', t => {
       { data: /WARN/, args: [ 'Invalid option(s) given:' ] },
       { data: /WARN/, args: [ 'yada, dada' ] }
     ])
-    t.equal(err, undefined)
     t.ok(data)
-    t.end()
   })
 })
 
 tap.test('Invalid wildcard pattern given for filename', t => {
-  readEntry(fxs.naturalTgz, '\n', { wildcards: true }, (err, data) => {
-    t.match(err.message, /^Invalid match pattern /)
-    t.equal(data, undefined)
-    t.end()
-  })
+  t.rejects(
+    readEntry(fxs.naturalTgz, '\n', { wildcards: true }),
+    { message: /^Invalid match pattern / }
+  )
+  t.end()
 })
 
 tap.test('When there is no match', t => {
   const tarball = fxs.constructedTar
-  readEntry(tarball, 'z/', null, (err, buf) => {
-    t.match(err, { message: /No match for z\//, code: 'ENOENT' })
-    t.equal(buf, undefined)
-    t.end()
-  })
+  t.rejects(
+    readEntry(tarball, 'z/', null),
+    { message: /No match for z\//, code: 'ENOMATCH' }
+  )
+  t.end()
 })
 
 tap.test('Option: anchored, default true vs explicitly set', t => {
@@ -177,20 +238,17 @@ tap.test('Option: anchored, default true vs explicitly set', t => {
   // accepting the entry 'a/b/c/passwords.txt' that comes first in the archive:
   const tarball = fxs.constructedTar
   const searchKey = 'urtyegIlCid6' // Only to be found in the root passwords.txt
-  readEntry(tarball, 'passwords.txt', null, (err, buf) => {
-    t.equal(err, undefined)
+  return readEntry(tarball, 'passwords.txt').then(buf => {
     t.ok(
       buf.toString().includes(searchKey),
       `Only the root passwords.txt contains the string "${searchKey}"`
     )
     const opts = { wildcards: true, anchored: true }
-    readEntry(tarball, 'passwords.txt', opts, (err, buf) => {
-      t.equal(err, undefined)
+    return readEntry(tarball, 'passwords.txt', opts).then(buf => {
       t.ok(
         buf.toString().includes(searchKey),
         `Only the root passwords.txt contains the string "${searchKey}"`
       )
-      t.end()
     })
   })
 })
@@ -201,34 +259,28 @@ tap.test('Option anchored = false', t => {
   const tarball = fxs.constructedTar
   const searchKey = 'ToksEgByRif3' // Only to be found in a/b/c/passwords.txt
   const opts = { wildcards: true, anchored: false }
-  readEntry(tarball, 'passwords.txt', opts, (err, buf) => {
-    t.equal(err, undefined)
+  return readEntry(tarball, 'passwords.txt', opts).then(buf => {
     t.ok(
       buf.toString().includes(searchKey),
       `Only a/b/c/passwords.txt contains the string "${searchKey}"`
     )
-    t.end()
   })
 })
 
 tap.test('Not a gzipped tarball', t => {
-  readEntry(fxs.gzNotTar, 'a', null, (err, data) => {
-    t.match(err, {
-      message: 'Invalid entry for a tar archive', code: 'EFTYPE'
-    })
-    t.equal(data, undefined)
-    t.end()
-  })
+  t.rejects(
+    readEntry(fxs.gzNotTar, 'a'),
+    { message: 'Invalid entry for a tar archive', code: 'EFTYPE'}
+  )
+  t.end()
 })
 
 tap.test('Truncated tarball', t => {
-  readEntry(fxs.brokenTgz, 'a/b/c', null, (err, data) => {
-    t.match(err, {
-      message: 'zlib: unexpected end of file', code: 'Z_BUF_ERROR'
-    })
-    t.equal(data, undefined)
-    t.end()
-  })
+  t.rejects(
+    readEntry(fxs.brokenTgz, 'a/b/c'),
+    { message: 'zlib: unexpected end of file', code: 'Z_BUF_ERROR' }
+  )
+  t.end()
 })
 
 tap.test('invalid values for valid options', t => {
@@ -239,24 +291,19 @@ tap.test('invalid values for valid options', t => {
     { name: 'wildcardsMatchSlash', value: 'ok' },
     { name: 'anchored', value: 'only' }
   ]
-  const nextBadOpt = (i) => {
+  function nextBadOpt(i) {
     if (i >= badOpts.length) return t.end()
     const opt = badOpts[i]
     const optsArg = { [opt.name]: opt.value }
-    readEntry(fxs.naturalTgz, 'passwords.txt', optsArg, (er, data) => {
-      t.match(er, {
+    return t.rejects(
+      readEntry(fxs.naturalTgz, 'passwords.txt', optsArg),
+      {
         message: `Invalid value type given for option "${opt.name}"`,
         code: 'EINVAL'
-      })
-      t.equal(data, undefined)
-      nextBadOpt(i + 1)
-    })
+      }
+    )
+    .then(() => nextBadOpt(i + 1))
   }
   nextBadOpt(0)
-})
-
-tap.tearDown(function() {
-  const extractPath = path.resolve(__dirname, 'fixtures/tarball_base')
-  rimraf(extractPath, function(err) {})
 })
 

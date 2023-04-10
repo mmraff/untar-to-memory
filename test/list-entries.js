@@ -4,104 +4,322 @@ const fs = require('fs')
 const path = require('path')
 const fxs = require('./fixtures/fixtures.js')
 
-tap.test('Nonexistent tarball', t => {
-  untar.list(path.join(__dirname, 'test/fixtures/NOSUCH'), null, (er, data) => {
-    t.match(er, { message: /no such file or directory/, code: 'ENOENT' })
-    t.end()
-  })
+// Our list of entries in fixtures.js comes directly from tar -tzf output
+// on the command line, so one might expect that list results will always
+// match it (or a subset obtained from iterating it). Not necessarily so:
+// if the tarball ever gets regenerated, it may have a different order than
+// the old list in fixtures.js. So we do the following, and we will sort
+// list results as we get them:
+fxs.naturalEntries.sort()
+// DO NOT do this to fxs.constructedEntries, though!
+
+tap.test('No tarball path given', t => {
+  t.rejects(untar.list(), SyntaxError)
+  for (const arg of [ undefined, null, '' ])
+    t.rejects(untar.list(arg, {}), SyntaxError)
+  t.end()
 })
 
-tap.test('list truncated tarball', t => {
-  untar.list(fxs.brokenTgz, null, (er, data) => {
-    t.match(er, {
-      message: 'zlib: unexpected end of file', code: 'Z_BUF_ERROR'
-    })
-    t.equal(data, undefined)
-    t.end()
-  })
+tap.test('Wrong type given for tarball path', t => {
+  const tgz = fxs.naturalTgz
+  const badArgs = [ true, 42, { tarball: tgz }, [ tgz ], () => tgz ]
+  for (const arg of badArgs)
+    t.rejects(untar.list(arg, {}), TypeError)
+  t.end()
+})
+
+tap.test('Nonexistent tarball', t => {
+  t.rejects(
+    untar.list(path.join(__dirname, 'fixtures/NOSUCH')),
+    { message: /no such file or directory/, code: 'ENOENT' }
+  )
+  t.end()
+})
+
+// The following case also leads to coverage of the multiple error situation
+// by triggering multiple calls to setResult() for a single call to list()
+// (Why there have to be multiple errors from zlib in this case, I don't know)
+tap.test('file faked to look like gzipped tarball', t => {
+  t.rejects(
+    untar.list(fxs.fakeTgz),
+    { message: 'zlib: unknown compression method', code: 'Z_DATA_ERROR' }
+  )
+  t.end()
+})
+
+tap.test('list truncated gzipped tarball', t => {
+  t.rejects(
+    untar.list(fxs.brokenTgz),
+    { message: 'zlib: unexpected end of file', code: 'Z_BUF_ERROR' }
+  )
+  t.end()
+})
+
+tap.test('file faked to look like bzipped tar file', t => {
+  t.rejects(
+    untar.list(fxs.fakeBz2, { bzip2: true }),
+    { message: 'Initial position larger than buffer size', code: undefined }
+  )
+  t.end()
+})
+
+tap.test('list bzipped mangled tar file', t => {
+  t.rejects(
+    untar.list(fxs.brokenTbz2, { bzip2: true }),
+    { message: 'Invalid entry for a tar archive', code: 'EFTYPE' }
+  )
+  t.end()
 })
 
 tap.test('list gzipped non-tarred file', t => {
-  untar.list(fxs.gzNotTar, null, (er, data) => {
-    t.match(er, {
-      message: 'Invalid entry for a tar archive', code: 'EFTYPE'
-    })
-    t.equal(data, undefined)
-    t.end()
-
-  })
+  t.rejects(
+    untar.list(fxs.gzNotTar),
+    { message: 'Invalid entry for a tar archive', code: 'EFTYPE' }
+  )
+  t.end()
 })
 
 tap.test('list file that is not a tarball', t => {
-  untar.list(fxs.notTarball, null, (er, data) => {
-    t.match(er, {
-      message: /^Invalid entry for a tar archive/, code: 'EFTYPE'
-    })
-    t.equal(data, undefined)
-    t.end()
-  })
+  t.rejects(
+    untar.list(fxs.notTarball),
+    { message: /^Invalid entry for a tar archive/, code: 'EFTYPE' }
+  )
+  t.end()
 })
 
 tap.test('invalid values for valid options', t => {
   const badOpts = [
-    { name: 'debug', value: 1 },
-    { name: 'ignoreCase', value: 'y' },
-    { name: 'wildcards', value: 'y' },
-    { name: 'wildcardsMatchSlash', value: 'ok' },
-    { name: 'recursion', value: 'maybe' },
-    { name: 'anchored', value: 'only' },
-    { name: 'pattern', value: new Date() }
+    { name: 'debug', value: 1 }, // boolean or keyword
+    { name: 'ignoreCase', value: 'y' }, // boolean required
+    { name: 'wildcards', value: 'y' }, // boolean required
+    { name: 'wildcardsMatchSlash', value: 'ok' }, // boolean required
+    { name: 'recursion', value: 'maybe' }, // boolean required
+    { name: 'anchored', value: 'only' }, // boolean required
+    { name: 'pattern', value: new Date() }, // string required
+    { name: 'useCompressProgram', value: 42 }, // keyword required
+    { name: 'I', value: true }, // keyword required
+    { name: 'bzip2', value: 'sure' }, // boolean required
+    { name: 'gzip', value: 'good' }, // boolean required
+    { name: 'lzma', value: 'fine' }, // boolean required
+    { name: 'xz', value: [] } // boolean required
   ]
   const nextBadOpt = (i) => {
     if (i >= badOpts.length) return t.end()
     const opt = badOpts[i]
-    untar.list(fxs.naturalTgz, { [opt.name]: opt.value }, (er, data) => {
-      //console.log('invalid values for opts case:', er)
-      t.match(er, {
-        message: `Invalid value type given for option "${opt.name}"`,
-        code: 'EINVAL'
-      })
-      t.equal(data, undefined)
-      nextBadOpt(i + 1)
+    return t.rejects(untar.list(fxs.naturalTgz, { [opt.name]: opt.value }), {
+      message: `Invalid value type given for option "${opt.name}"`,
+      code: 'EINVAL'
     })
+    .finally(() => nextBadOpt(i + 1))
   }
   nextBadOpt(0)
 })
 
-tap.test('try an invalid pattern to list paths', t => {
-
-  untar.list(fxs.naturalTgz, { pattern: '\n' }, (er, data) => {
-    t.match(er, /Invalid match pattern /)
-    t.equal(data, undefined)
-    t.end()
-  })
+tap.test('invalid pattern given to list paths', t => {
+  t.rejects(
+    untar.list(fxs.naturalTgz, { pattern: '\n' }),
+    { message: /Invalid match pattern / }
+  )
+  t.end()
 })
 
-tap.test('list gzipped tarball', function (t) {
+tap.test('unsupported compression program option', t => {
+  t.rejects(
+    untar.list(fxs.naturalTgz, { useCompressProgram: 'zip' }),
+    { message: 'Compression method unsupported: zip', code: 'EINVAL' }
+  )
+  t.rejects(
+    untar.list(fxs.naturalTgz, { I: 'compress' }),
+    { message: 'Compression method unsupported: compress', code: 'EINVAL' }
+  )
+  t.end()
+})
+
+tap.test('conflicting compression program options', t => {
+  t.rejects(
+    untar.list(fxs.naturalTgz, { useCompressProgram: 'gzip', I: 'xz' }),
+    { message: 'Conflicting compression options', code: 'EINVAL' }
+  )
+  t.rejects(
+    untar.list(fxs.naturalTgz, { useCompressProgram: 'gzip', bzip2: true }),
+    { message: 'Conflicting compression options', code: 'EINVAL' }
+  )
+  t.rejects(
+    untar.list(fxs.naturalTgz, { bzip2: true, lzma: true }),
+    { message: 'Conflicting compression options', code: 'EINVAL' }
+  )
+  t.end()
+})
+
+tap.test('list gzipped tarball by auto-detection', t => {
   const tarball = fxs.naturalTgz
   const entryList = fxs.naturalEntries
 
-  untar.list(tarball, null, function(er, data) {
-    if (er) { t.fail(er.message) }
-    else {
-      t.same(data, entryList,
-        'list() with no opts should yield same as fixtures entry list')
-    }
-    t.end()
+  return untar.list(tarball).then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with no opts should yield same as fixtures entry list'
+    )
   })
 })
 
-tap.test('list naked tarball', function (t) {
+tap.test('list gzipped tarball specified by compression type', t => {
+  const tarball = fxs.naturalTgz
+  const entryList = fxs.naturalEntries
+
+  return untar.list(tarball, { useCompressProgram: 'gzip' })
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with useCompressProgram=gzip should yield same as fixtures entry list'
+    )
+  })
+  .then(() => untar.list(tarball, { I: 'gzip' }))
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with I=gzip should yield same as fixtures entry list'
+    )
+  })
+  .then(() => untar.list(tarball, { gzip: true }))
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with gzip=true should yield same as fixtures entry list'
+    )
+  })
+})
+
+tap.test('list bzip2-compressed tarball specified by compression type', t => {
+  const tarball = fxs.naturalTbz2
+  const entryList = fxs.naturalEntries
+
+  return untar.list(tarball, { useCompressProgram: 'bzip2' })
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with useCompressProgram=bzip2 should yield same as fixtures entry list'
+    )
+  })
+  .then(() => untar.list(tarball, { I: 'bzip2' }))
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with I=bzip2 should yield same as fixtures entry list'
+    )
+  })
+  .then(() => untar.list(tarball, { bzip2: true }))
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with bzip2=true should yield same as fixtures entry list'
+    )
+  })
+})
+
+tap.test('list lzma-compressed tarball specified by compression type', t => {
+  const tarball = fxs.naturalTlzma
+  const entryList = fxs.naturalEntries
+
+  return untar.list(tarball, { useCompressProgram: 'lzma' })
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with useCompressProgram=lzma should yield same as fixtures entry list'
+    )
+  })
+  .then(() => untar.list(tarball, { I: 'lzma' }))
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with I=lzma should yield same as fixtures entry list'
+    )
+  })
+  .then(() => untar.list(tarball, { lzma: true }))
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with lzma=true should yield same as fixtures entry list'
+    )
+  })
+})
+
+tap.test('list xz-compressed tarball specified by compression type', t => {
+  const tarball = fxs.naturalTxz
+  const entryList = fxs.naturalEntries
+
+  return untar.list(tarball, { useCompressProgram: 'xz' })
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with useCompressProgram=xz should yield same as fixtures entry list'
+    )
+  })
+  .then(() => untar.list(tarball, { I: 'xz' }))
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with I=xz should yield same as fixtures entry list'
+    )
+  })
+  .then(() => untar.list(tarball, { xz: true }))
+  .then(data => {
+    t.same(
+      data.sort(), entryList,
+     'list() with xz=true should yield same as fixtures entry list'
+    )
+  })
+})
+
+tap.test('request bzip2 type for non-bzip2-compressed tarball', t => {
+  t.rejects(
+    untar.list(fxs.naturalTgz, { bzip2: true }),
+    { message: 'No magic number found' }
+  )
+  t.end()
+})
+
+tap.test('request gzip type for a one-byte file', t => {
+  t.rejects(
+    untar.list(fxs.oneByte, { gzip: true }),
+    { message: 'File is too short' }
+  )
+  t.end()
+})
+
+tap.test('request gzip type for non-gzip-compressed tarball', t => {
+  t.rejects(
+    untar.list(fxs.naturalTxz, { gzip: true }),
+    { message: 'not in gzip format', code: 'EFTYPE' }
+  )
+  t.end()
+})
+
+tap.test('request lzma type for non-lzma-compressed tarball', t => {
+  t.rejects(
+    untar.list(fxs.naturalTgz, { lzma: true }),
+    { message: 'File format not recognized', code: 'LZMA_FORMAT_ERROR' }
+  )
+  t.end()
+})
+
+tap.test('request xz type for non-xz-compressed tarball', t => {
+  t.rejects(
+    untar.list(fxs.naturalTgz, { xz: true }),
+    { message: 'File format not recognized', code: 'LZMA_FORMAT_ERROR' }
+  )
+  t.end()
+})
+
+tap.test('list naked tarball', t => {
   const tarball = fxs.constructedTar
   const entryList = fxs.constructedEntries
 
-  untar.list(tarball, null, function(er, data) {
-    if (er) { t.fail(er.message) }
-    else {
-      t.same(data, entryList,
-        'list() with no opts should yield same as fixtures entry list')
-    }
-    t.end()
+  return untar.list(tarball).then(data => {
+    t.same(
+      data, entryList,
+      'list() with no opts should yield same as fixtures entry list'
+    )
   })
 })
 
@@ -112,14 +330,12 @@ tap.test('enable logging at a specific level', t => {
   console.info = () => { messages.info++ }
   console.warn = () => { messages.warn++ }
 
-  untar.list(fxs.constructedTar, opts, (er, data) => {
+  return untar.list(fxs.constructedTar, opts).then(data => {
     console.warn = warn
     console.info = info
     t.ok(messages.info === 0, 'Expect no info/verbose messages')
     t.ok(messages.warn > 0, 'Expect warning messages')
-    t.equal(er, undefined)
-    t.same(data, [])
-    t.end()
+    t.same(data, []) // There's no entry to match 'z'
   })
 })
 
@@ -128,31 +344,26 @@ tap.test('enable minimatch logging', t => {
   const consoleError = console.error
   let mmMsgCount = 0
   console.error = () => { ++mmMsgCount }
-  untar.list(fxs.constructedTar, { pattern: 'x', debug: 'minimatch' }, (er, data) => {
+  return untar.list(fxs.constructedTar, { pattern: 'x', debug: 'minimatch' })
+  .then(data => {
     console.error = consoleError
     t.ok(mmMsgCount > 0, 'Expect minimatch logging')
-    t.equal(er, undefined)
     t.equal(data.length, 2)
-    t.end()
   })
 })
 
-function testUntarListVsRegex (t, tarball, opts, list, re, next) {
-  untar.list(tarball, opts, function(er, data) {
-    if (er) {
-      t.fail(er.message)
+function testUntarListVsRegex (t, tarball, opts, list, re) {
+  return untar.list(tarball, opts).then(data => {
+    const filteredList = []
+    for (let i = 0; i < list.length; i++) {
+      if (re.test(list[i])) { filteredList.push(list[i]) }
     }
-    else {
-      const filteredList = []
-      for (let i = 0; i < list.length; i++) {
-        if (re.test(list[i])) { filteredList.push(list[i]) }
-      }
-      t.same(data, filteredList, [
-        'list() with opts ', JSON.stringify(opts),
-        ' should yield same as fixtures entry list filtered by ', re.toString()
-      ].join(''))
-    }
-    next()
+    // I repeat, DO NOT sort the constructedEntries!!!
+    if (tarball === fxs.naturalTgz) data.sort()
+    t.same(data, filteredList, [
+      'list() with opts ', JSON.stringify(opts),
+      ' should yield same as fixtures entry list filtered by ', re.toString()
+    ].join(''))
   })
 }
 
@@ -163,27 +374,26 @@ tap.test('validate yield of list() with verbatim patterns', function (t) {
 
   // +"(?:\/.*)?$" ensures that the end of the verbatim pattern only matches
   // the end of a path component.
-  testUntarListVsRegex(
+  return testUntarListVsRegex(
     t, tarball, {pattern: pattern}, entryList,
-    new RegExp('^' + pattern + '(?:\/.*)?$'), next1
+    new RegExp('^' + pattern + '(?:\/.*)?$')
   )
-
-  function next1() {
+  .then(() => {
     pattern = 'a/b/c/d' // A non-empty directory entry
-    testUntarListVsRegex(
+    return testUntarListVsRegex(
       t, tarball, {pattern: pattern}, entryList,
-      new RegExp('^' + pattern + '(?:\/.*)?$'), () => { next2() }
+      new RegExp('^' + pattern + '(?:\/.*)?$')
     )
-  }
-  function next2() {
+  })
+  .then(() => {
     tarball = fxs.constructedTar
     entryList = fxs.constructedEntries
     pattern = 'a/b'
-    testUntarListVsRegex(
+    return testUntarListVsRegex(
       t, tarball, {pattern: pattern}, entryList,
-      new RegExp('^' + pattern + '(?:\/.*)?$'), () => { t.end() }
+      new RegExp('^' + pattern + '(?:\/.*)?$')
     )
-  }
+  })
 })
 
 tap.test('validate yield of list() with non-anchored pattern', t => {
@@ -192,7 +402,7 @@ tap.test('validate yield of list() with non-anchored pattern', t => {
   const opts = { pattern: 'passwords.txt', anchored: false }
   const re = new RegExp('^(?:.*\/)?' + opts.pattern + '$')
 
-  testUntarListVsRegex(t, tarball, opts, entryList, re, () => { t.end() })
+  return testUntarListVsRegex(t, tarball, opts, entryList, re)
 })
 
 tap.test('validate yield of list() with ignoreCase option', t => {
@@ -201,12 +411,13 @@ tap.test('validate yield of list() with ignoreCase option', t => {
   const opts = { pattern: 'PaSsWoRdS.txt', anchored: false, ignoreCase: true }
   const re = new RegExp('^(?:.*\/)?' + opts.pattern + '$', 'i')
 
-  testUntarListVsRegex(t, tarball, opts, entryList, re, () => { t.end() })
+  return testUntarListVsRegex(t, tarball, opts, entryList, re)
 })
 
 // In the following...
 // GS == Globstar; NoGS == NoGlobstar; NoR == NoRecursion
 const wcOptions = {
+  // Why is this here? It's not being used. Just for reader's reference?
     reGS: { wildcards: true }
   , reNoGS: { wildcards: true, wildcardsMatchSlash: false }
   , reGSNoR: { wildcards: true, recursion: false }
@@ -259,51 +470,61 @@ const wcPatterns = [
 */
 ]
 
+// Admission: this following code is not very intuitively readable. However,
+// it lends the advantage of collapsing what would otherwise be 60 tests into
+// a nice compact block.
+//
+// Explanation:
+// We have a 'natural' tarball, the one created in one shot by tar -czf;
+// and we have a 'constructed' tarball, the one created by adding file entries
+// one at a time so that the iteration order can be controlled.
+// We have 6 patterns and 5 sets of filtering options, making for 30 tests.
+// 1. Using the 'natural' tarball, we pass one of the patterns and one of the
+//    set of filtering options, and compare the result of untar.list with what
+//    we expect, which is encoded by a corresponding RegExp that we then apply
+//    to the full list of actual entries.
+// 2. Then we do the same using the 'constructed' tarball.
 tap.test('Give list() a workout with option combinations', function (t) {
   let tarball = fxs.naturalTgz
   let entryList = fxs.naturalEntries
   const opts = { pattern: wcPatterns[0].untar, wildcards: true }
-  let p = 0
 
-  testUntarListVsRegex(
-    t, tarball, opts, entryList, wcPatterns[p].reGS, do_reNoGS
-  )
-
-  function do_reNoGS () {
-    opts.wildcardsMatchSlash = false
-    testUntarListVsRegex(
-      t, tarball, opts, entryList, wcPatterns[p].reNoGS, do_reNoGSNoR
-    )
-  }
-
-  function do_reNoGSNoR () {
-    opts.recursion = false
-    testUntarListVsRegex(
-      t, tarball, opts, entryList, wcPatterns[p].reNoGSNoR, do_reGSNoR
-    )
-  }
-
-  function do_reGSNoR () {
-    delete opts.wildcardsMatchSlash
-    testUntarListVsRegex(
-      t, tarball, opts, entryList, wcPatterns[p].reGSNoR, next
-    )
-  }
-
-  function next () {
-    p++
+  function nextSequence(p) {
     if (p >= wcPatterns.length) {
-      if (tarball === fxs.constructedTar) { return t.end() }
+      if (tarball === fxs.constructedTar) return Promise.resolve()
       tarball = fxs.constructedTar
       entryList = fxs.constructedEntries
       p = 0
     }
-
-    delete opts.recursion
     opts.pattern = wcPatterns[p].untar
-    testUntarListVsRegex(
-      t, tarball, opts, entryList, wcPatterns[p].reGS, do_reNoGS
+
+    return testUntarListVsRegex(
+      t, tarball, opts, entryList, wcPatterns[p].reGS
     )
+    .then(() => {
+      opts.wildcardsMatchSlash = false
+      return testUntarListVsRegex(
+        t, tarball, opts, entryList, wcPatterns[p].reNoGS
+      )
+    })
+    .then(() => {
+      opts.recursion = false
+      return testUntarListVsRegex(
+        t, tarball, opts, entryList, wcPatterns[p].reNoGSNoR
+      )
+    })
+    .then(() => {
+      delete opts.wildcardsMatchSlash
+      return testUntarListVsRegex(
+        t, tarball, opts, entryList, wcPatterns[p].reGSNoR
+      )
+    })
+    .then(() => {
+      delete opts.recursion
+      return nextSequence(p + 1)
+    })
   }
+
+  return nextSequence(0)
 })
 

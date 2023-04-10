@@ -1,6 +1,6 @@
 {
   "name": "untar-to-memory",
-  "version": "1.0.5",
+  "version": "2.0.0",
   "description": "npm module for reading stuff from tarballs without writing to the filesystem.",
   "author": "Matthew Rafferty",
   "license": "Artistic-2.0",
@@ -12,7 +12,7 @@
     "url": "https://github.com/mmraff/untar-to-memory/issues"
   },
   "engines": {
-    "node": ">=5.10.0"
+    "node": ">=10"
   },
   "main": "index.js",
   "files": [
@@ -23,14 +23,17 @@
     "test": "tap --coverage test/*.js"
   },
   "dependencies": {
-    "graceful-fs": "~4.1.2",
-    "minimatch": "^3.0.5",
+    "minimatch": "^3.1.2",
     "tar": "^4.4.19"
   },
+  "optionalDependencies": {
+    "lzma-native": "^8.0.6",
+    "unbzip2-stream": "^1.4.3"
+  },
   "devDependencies": {
-    "mkdirp": "^0.5.0",
-    "rimraf": "^2.4.2",
-    "tap": "12.7"
+    "mkdirp": "^1.0.4",
+    "rimraf": "^3.0.2",
+    "tap": "^15.2.3"
   },
   "keywords": [
     "tar",

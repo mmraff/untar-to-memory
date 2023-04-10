@@ -11,10 +11,9 @@ const { readEntry } = require('./index')
 let count = 0
 
 const int = setInterval(() =>
-  readEntry(
-    './test/fixtures/constructed.tar', 'passwords.txt', null,
-    (err, buf) => console.log(`readEntry ${++count} ${err || 'OK'}`)
-  ),
+  readEntry( './test/fixtures/constructed.tar', 'passwords.txt', null)
+  .then(buf => console.log(`readEntry ${++count} OK`))
+  .catch(err => console.log(`readEntry ${++count}`, err)),
   10
 )
 

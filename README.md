@@ -8,8 +8,20 @@ _Command-line **tar** takes a multitude of options, not all of which are current
 implemented in this module._
 
 ## Installation
-
-    npm install untar-to-memory
+```
+npm install untar-to-memory
+```
+There are optional dependencies that provide decompression of bzip2-, LZMA-,
+and XZ-compressed tarballs. If your project will rely on one of these,
+be sure to install them as regular dependencies *instead* of using
+`--include optional` when you install untar-to-memory:
+```
+npm install unbzip2-stream
+```
+For LZMA and/or XZ:
+```
+npm install lzma-native
+```
 
 ## Usage
 
@@ -18,8 +30,8 @@ const untar = require('untar-to-memory')
 
 const tgzPath = path.resolve("path", "to", "tarball1.tgz")
 
-// Verbatim entry specification - null for options gets defaults
-untar.readEntry(tgzPath, "secret/passwords.bin", null, (er, buf) => {
+// Verbatim entry specification - options omitted gets defaults
+untar.readEntry(tgzPath, "secret/passwords.bin").then(buf => {
   // ...
 })
 
@@ -28,13 +40,12 @@ const opts = { ignoreCase: true, wildcards: true, wildcardsMatchSlash: false }
 
 // Get the contents of the first "keys.txt" entry that is directly under a
 // top level directory in the tarball, regardless of the entry name case:
-untar.readEntry(tarPath, "*/KEYS.TXT", opts, (er, buf) => {
+untar.readEntry(tarPath, "*/KEYS.TXT", opts).then(buf => {
   // ...
 })
 
 // Get list of all entries from tarball2.tar
-untar.list(tarPath, null, (er, allEntries) => {
-  if (er) { /* error handling... */ }
+untar.list(tarPath).then(allEntries => {
   for (let i = 0; i < allEntries.length; i++) {
     // ...
   }
@@ -45,53 +56,71 @@ const opts = {
   pattern: "secret/*", wildcards: true, wildcardsMatchSlash: false,
   recursion: false
 }
-untar.list(tgzPath, opts, function(er, topSecrets) {
+untar.list(tgzPath, opts).then(topSecrets => {
   // ...
 })
 
 ```
 
 ## API
-
-### readEntry (tarball, filename, options, callback)
-
-* `tarball` String: path to a **tar** archive, which can be either uncompressed or gzipped.
-* `filename` String: path pattern to match an entry in the tarball.
-* `options` Object: settings corresponding to command-line **tar** options,
-  to control pattern matching. Valid fields:
-  + `ignoreCase` default: false
-  + `wildcards` default: false
-  + `wildcardsMatchSlash` default: true
-* `callback` Function: args (`error`, `buffer`) where buffer is a node.js **Buffer**
-  holding the data contents of the entry if successful.
-
-Use of this function corresponds roughly to using operation mode `x`
-(`--extract`, `--get`) of command-line **tar** with option `-O` (`--to-stdout`).
-
-Some possible errors:
+Both methods return Promises. *Some* possible error codes if the Promise rejects are:
   - EINVAL: invalid argument/option value.
-  - EFTYPE: the tarball has an invalid entry, or it's not a tar archive.
-  - ENOENT: the tarball path was not found, or readEntry() found no match.
+  - EFTYPE: the tarball has an invalid entry, or the file type is not recognized.
+  - ENOENT: the tarball path was not found.
+  - ENOMATCH: no entry was found to match the entry path/pattern as given.
+  - EFBIG (`readEntry` only): the matching entry is bigger than the `maxSize`
+   set by the user.
 
-If error with error.code ENOENT is returned through the callback, user should check for error.pattern to distinguish between no-such-tarball and no-such-entry. *Deprecated: a new error code for no-such-entry will be added in the next minor/major version.*
+### `readEntry (tarball, filename, options)` &rarr; `Promise<Buffer>`
 
+* `tarball` {string}: path to a **tar** archive, which may or may not be compressed.
+* `filename` {string}: path pattern to match an entry in the tarball.
+* `options` {object}: settings to control pattern matching.
+  *Mostly corresponding to command-line **tar** options.*
 
-### list (tarball, options, callback)
+  Valid fields:
+  + `anchored`: default `true`
+  + `ignoreCase`: default `false`
+  + `maxSize`: default `0` (meaning unlimited)
+  + `recursion`: default `true`
+  + `useCompressProgram`/`I`: default `''` (autodetection for gzip)
+    - other valid values are `'bzip'`, `'gzip'`, `'lzma'`, `'xz'`
+  + `bzip`/`gzip`/`lzma`/`xz`: default `false`
+  + `wildcards`: default `false`
+  + `wildcardsMatchSlash`: default `false`, `true` if `wildcards` is `true`
 
-* `tarball` String: path to a **tar** archive, which can be 'naked' or gzipped.
-* `options` Object: settings corresponding to command-line **tar** options,
-  to control pattern matching. Valid fields:
-  + `pattern` default: ''; if empty, all entries will be matched.
-  + `ignoreCase` default: false
-  + `wildcards` default: false
-  + `wildcardsMatchSlash` default: true if `wildcards` false, otherwise true
-  + `recursion` default: true
-  + `anchored` default: true
-* `callback` Function: args (`error`, `entries`) where `entries` is an array of
-  entry names that matched (possibly none) if successful.
+Resolves to a **Buffer** holding the contents of the entry if successful.
+
+Use of this function roughly corresponds to using operation mode `x`
+(`--extract`, `--get`) of command-line **tar** with option `-O` (`--to-stdout`)
+to extract a single specified file.
+
+### `list (tarball, options)` &rarr; `Promise<Array>`
+
+* `tarball` {string}: path to a **tar** archive, which may or may not be compressed.
+* `options` {object}: settings to control pattern matching.
+  *Mostly corresponding to command-line **tar** options.*
+
+  Valid fields:
+  + `anchored`: default `true`
+  + `ignoreCase`: default `false`
+  + `pattern`: default `''`; if empty, all entries will be matched.
+  + `recursion`: default `true`
+  + `useCompressProgram`/`I`: default `''` (autodetection for gzip)
+    - other valid values are `'bzip'`, `'gzip'`, `'lzma'`, `'xz'`
+  + `bzip`/`gzip`/`lzma`/`xz`: default `false`
+  + `wildcards`: default `false`
+  + `wildcardsMatchSlash`: default `false`, `true` if `wildcards` is `true`
+
+Resolves to an array of matched entry paths (possibly empty) if successful.<br>
+It is *not* treated as an error if there are no matches.
 
 ## Pattern Matching Control
 
 For an authoritative discussion and examples, see the
 [tar manual page at gnu.org](https://www.gnu.org/software/tar/manual/html_node/controlling-pattern_002dmatching.html)
+
+------
+
+**License: Artistic 2.0**
 
